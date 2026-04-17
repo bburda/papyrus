@@ -1,0 +1,29 @@
+{
+  "versions": {
+    "1.0": {
+      "needs": {
+        "REQ_auth": {
+          "id": "REQ_auth",
+          "type": "req",
+          "title": "Authentication requirement",
+          "links": ["REQ_session"],
+          "satisfies": []
+        },
+        "REQ_session": {
+          "id": "REQ_session",
+          "type": "req",
+          "title": "Session requirement",
+          "links": [],
+          "satisfies": []
+        },
+        "COMP_jwt": {
+          "id": "COMP_jwt",
+          "type": "comp",
+          "title": "JWT component",
+          "satisfies": ["REQ_auth"],
+          "links": []
+        }
+      }
+    }
+  }
+}
