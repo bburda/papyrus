@@ -1,0 +1,18 @@
+{
+  "name": "papyrus-dev",
+  "description": "Development marketplace for Papyrus rationale-layer",
+  "owner": {
+    "name": "useblocks"
+  },
+  "plugins": [
+    {
+      "name": "papyrus",
+      "description": "Rationale-as-code layer for sphinx-needs — impact analysis across memory↔requirement graph",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "useblocks"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "papyrus",
+  "description": "Rationale-as-code layer for sphinx-needs: AI-agent decisions, risks, and open questions as first-class needs linked to requirements with impact analysis across the decision graph",
+  "version": "0.1.0",
+  "author": {
+    "name": "useblocks"
+  },
+  "repository": "https://github.com/useblocks/papyrus",
+  "license": "MIT",
+  "keywords": ["ai-memory", "rationale", "sphinx-needs", "pharaoh", "traceability", "mcp", "impact-analysis", "compliance"]
+}
