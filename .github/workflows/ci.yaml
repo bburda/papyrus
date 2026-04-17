@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+      - name: Sync deps
+        run: uv sync --extra dev
+      - name: Ruff
+        run: uv run ruff check
+      - name: Pyright
+        run: uv run pyright
+      - name: Pytest
+        run: uv run pytest
+
+  validate-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate SKILL.md frontmatter
+        run: |
+          status=0
+          for skill_dir in skills/papyrus-*/; do
+            skill_file="${skill_dir}SKILL.md"
+            if [ ! -f "$skill_file" ]; then
+              echo "ERROR: Missing SKILL.md in $skill_dir"
+              status=1
+              continue
+            fi
+
+            first_line=$(head -1 "$skill_file")
+            if [ "$first_line" != "---" ]; then
+              echo "ERROR: $skill_file missing YAML frontmatter"
+              status=1
+              continue
+            fi
+
+            frontmatter=$(sed -n '2,/^---$/p' "$skill_file" | sed '$d')
+
+            if ! echo "$frontmatter" | grep -qE '^name: papyrus-[a-z-]+$'; then
+              echo "ERROR: $skill_file name must match 'papyrus-<kebab>'"
+              status=1
+            fi
+
+            if ! echo "$frontmatter" | grep -qE '^description: Atomic —'; then
+              echo "ERROR: $skill_file description must start with 'Atomic —'"
+              status=1
+            fi
+
+            for section in "## Atomicity" "## Input / Output" "## Success criterion"; do
+              if ! grep -qF "$section" "$skill_file"; then
+                echo "ERROR: $skill_file missing section '$section'"
+                status=1
+              fi
+            done
+
+            echo "OK: $skill_file"
+          done
+          exit $status

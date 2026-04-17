@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "papyrus"
+version = "0.1.0"
+description = "Rationale-as-code layer for sphinx-needs: AI-agent decisions, risks, and open questions as first-class needs linked to requirements"
+readme = "README.md"
+requires-python = "~=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "useblocks" }
+]
+keywords = [
+    "ai-memory",
+    "sphinx-needs",
+    "pharaoh",
+    "automotive",
+    "mcp",
+    "traceability",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "click>=8.1",
+    "pydantic>=2.5",
+    "filelock>=3.13",
+    "sphinx>=7.0",
+    "sphinx-needs>=2.0",
+    "pyyaml>=6.0",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "pyright>=1.1",
+    "ruff>=0.2",
+]
+
+[project.scripts]
+papyrus = "papyrus.cli:cli"
+
+[project.urls]
+"Repository" = "https://github.com/bburda/papyrus"
+"Issues" = "https://github.com/bburda/papyrus/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501", "UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F401"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"

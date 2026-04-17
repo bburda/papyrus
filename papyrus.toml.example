@@ -1,0 +1,49 @@
+# Example Papyrus workspace chain configuration.
+# Copy to `papyrus.toml` in your project root and adjust.
+
+[papyrus]
+# Preset shapes the workspace chain. One of:
+#   "silos"        — only .papyrus/ per repo (no propagation)
+#   "program"      — local + sibling aggregator + promote workflow
+#   "oss-friendly" — only sibling aggregator (source repo untouched)
+#   "enterprise"   — all 3 layers (local/program/org) with RBAC
+preset = "program"
+default_write = "local"
+
+[[papyrus.workspaces]]
+path  = ".papyrus"
+scope = "local"
+
+[[papyrus.workspaces]]
+path  = "../<program>-papyrus"
+scope = "program"
+
+[[papyrus.workspaces]]
+path  = "~/useblocks-papyrus/<domain>"
+scope = "org"
+
+[papyrus.forgetting]
+# Days until a memory is flagged for review. Decisions do not auto-expire.
+mem_review_days  = 30
+fact_review_days = 180
+pref_review_days = 365
+dec_never_expire = true
+
+[papyrus.autocapture]
+# Capture observations automatically from Claude Code hooks (SessionEnd, PostToolUse).
+# Auto-captured memories start with confidence = "medium" and require promote for higher scope.
+enabled        = true
+on_events      = ["session-end", "post-tool-use"]
+min_confidence = "medium"
+
+[papyrus.promote]
+# Gating rules when moving a memory from a lower to a higher scope.
+to_program_requires_confidence = "high"
+to_org_requires_human_review   = true
+
+# Optional: link rationale to a pharaoh (sphinx-needs) project.
+# When set, `papyrus link`/`impact` can reference requirements from that
+# project. Papyrus reads needs.json read-only — it never writes to pharaoh.
+# [papyrus.external]
+# pharaoh_workspace = "../my-pharaoh-project"
+# needs_json = "needs.json"
