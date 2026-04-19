@@ -1031,6 +1031,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "numpy" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1047,6 +1048,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "filelock", specifier = ">=3.13" },
     { name = "mcp", specifier = ">=1.0" },
+    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'semantic'", specifier = ">=1.26" },
     { name = "pydantic", specifier = ">=2.5" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },

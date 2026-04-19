@@ -46,6 +46,10 @@ dev = [
     "pytest-cov>=4.1",
     "pyright>=1.1",
     "ruff>=0.2",
+    # numpy is a semantic runtime dep, but it is lightweight (~15 MB) and the
+    # test suite (FakeEncoder, VectorStore) depends on it. Pulling it into dev
+    # keeps CI fast while `sentence-transformers` (heavy) stays opt-in.
+    "numpy>=1.26",
 ]
 semantic = [
     "sentence-transformers>=2.5",
