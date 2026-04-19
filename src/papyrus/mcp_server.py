@@ -306,14 +306,23 @@ async def _handle_recall(p: PapyrusServer, args: dict) -> CallToolResult:
             query=None,
         )
         narrowed_ids = {n.id for n in narrowed}
-        primary_backend = p.chain.backend_for(p.chain.list_scopes()[0])
-        try:
-            idx = sem.build_default_index(primary_backend.workspace)
-        except ImportError as e:
-            return _error(str(e))
-        hits = idx.search(query, top_k=int(args.get("top_k", 10)), filter_ids=narrowed_ids)
+        top_k = int(args.get("top_k", 10))
+
+        # Query every scope's vector index, keep the highest score per id.
+        merged: dict[str, sem.SemanticHit] = {}
+        for scope in p.chain.list_scopes():
+            backend = p.chain.backend_for(scope)
+            try:
+                idx = sem.build_default_index(backend.workspace)
+            except ImportError as e:
+                return _error(str(e))
+            for hit in idx.search(query, top_k=top_k, filter_ids=narrowed_ids):
+                prev = merged.get(hit.id)
+                if prev is None or hit.score > prev.score:
+                    merged[hit.id] = hit
+        ranked = sorted(merged.values(), key=lambda h: -h.score)[:top_k]
         by_id = {n.id: n for n in all_needs}
-        pairs = [(by_id[h.id], h.score) for h in hits if h.id in by_id]
+        pairs = [(by_id[h.id], h.score) for h in ranked if h.id in by_id]
         from papyrus.query import render_with_scores
         text = render_with_scores(
             pairs, fmt, scope_by_id=annotations, show_scores=bool(args.get("show_scores", False)),

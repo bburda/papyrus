@@ -252,6 +252,17 @@ def test_semantic_search_empty_index_returns_empty(tmp_path) -> None:
     assert idx.search("anything") == []
 
 
+def test_semantic_search_rejects_non_positive_top_k(tmp_path) -> None:
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    import pytest
+
+    with pytest.raises(ValueError, match="top_k"):
+        idx.search("anything", top_k=0)
+    with pytest.raises(ValueError, match="top_k"):
+        idx.search("anything", top_k=-1)
+
+
 def test_semantic_available_false_when_extra_missing(monkeypatch) -> None:
     # Simulate missing sentence_transformers
     import builtins

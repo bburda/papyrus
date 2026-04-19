@@ -517,6 +517,40 @@ async def test_memory_recall_semantic_ranks_related_first(tmp_path: Path, monkey
     assert text.index("FACT_temp") < text.index("DEC_auth")
 
 
+async def test_memory_recall_semantic_merges_hits_across_scopes(tmp_path: Path, monkeypatch) -> None:
+    """Semantic recall must search every scope in the chain, not just the first."""
+    from papyrus.semantic import FakeEncoder, SemanticIndex
+
+    chain, cfg = _chain(tmp_path)
+    # Thermal-related need in LOCAL, auth-related need in PROGRAM.
+    _add(chain, Scope.LOCAL, "FACT_temp", NeedType.FACT, body="sensor celsius reading")
+    _add(chain, Scope.PROGRAM, "DEC_auth", NeedType.DEC, body="bcrypt password hashing")
+    srv = PapyrusServer(chain, cfg)
+    handler = _HANDLERS["memory_recall"]
+
+    encoder = FakeEncoder(
+        axes=["thermal", "auth"],
+        keyword_map={
+            "thermal": ["temperature", "celsius", "hot"],
+            "auth": ["password", "bcrypt", "authentication"],
+        },
+    )
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    monkeypatch.setattr(
+        "papyrus.semantic.build_default_index",
+        lambda ws: SemanticIndex(ws / ".papyrus", encoder=encoder, model_name="fake"),
+    )
+    # Populate vectors in BOTH scopes.
+    chain.backend_for(Scope.LOCAL).rebuild_index()
+    chain.backend_for(Scope.PROGRAM).rebuild_index()
+
+    # Query matching the PROGRAM-scope need — would return empty pre-fix.
+    result = await handler(srv, {"semantic": True, "query": "authentication"})
+    assert result.isError is False
+    text = _text(result, 0)
+    assert "DEC_auth" in text
+
+
 async def test_memory_recall_semantic_show_scores(tmp_path: Path, monkeypatch) -> None:
     from papyrus.semantic import FakeEncoder, SemanticIndex
 
