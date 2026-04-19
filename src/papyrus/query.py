@@ -97,3 +97,32 @@ def _render_full(n: Need, scope: Scope | None = None) -> str:
         lines.append("")
         lines.append(n.body)
     return "\n".join(lines)
+
+
+def render_with_scores(
+    hits: list[tuple[Need, float]],
+    fmt: QueryFormat,
+    *,
+    scope_by_id: dict[str, Scope] | None = None,
+    show_scores: bool = True,
+) -> str:
+    """Render semantic hits, optionally prefixing each line with the similarity score."""
+    if not hits:
+        return "(no needs match)"
+    if not show_scores:
+        return render([n for n, _ in hits], fmt, scope_by_id=scope_by_id)
+    annotations = scope_by_id or {}
+    if fmt is QueryFormat.BRIEF:
+        return "\n".join(
+            f"{score:.2f}  " + _render_brief(n, annotations.get(n.id))
+            for n, score in hits
+        )
+    if fmt is QueryFormat.COMPACT:
+        return "\n".join(
+            f"[score={score:.3f}]\n" + _render_compact(n, annotations.get(n.id))
+            for n, score in hits
+        )
+    return "\n\n".join(
+        f"[score={score:.3f}]\n" + _render_full(n, annotations.get(n.id))
+        for n, score in hits
+    )
