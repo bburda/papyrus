@@ -1,4 +1,5 @@
 """Tests for papyrus.semantic. FakeEncoder keeps tests dep-free."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -10,8 +11,12 @@ from papyrus.semantic import content_hash
 def _need(nid: str, ntype: NeedType, **extra: object) -> Need:
     now = datetime.now(UTC)
     return Need(
-        id=nid, type=ntype, title=nid.replace("_", " "),
-        created_at=now, updated_at=now, **extra,  # type: ignore[arg-type]
+        id=nid,
+        type=ntype,
+        title=nid.replace("_", " "),
+        created_at=now,
+        updated_at=now,
+        **extra,  # type: ignore[arg-type]
     )
 
 
@@ -30,3 +35,9 @@ def test_content_hash_independent_of_tag_order() -> None:
     a = _need("FACT_temp", NeedType.FACT, tags=["topic:a", "topic:b"])
     b = _need("FACT_temp", NeedType.FACT, tags=["topic:b", "topic:a"])
     assert content_hash(a) == content_hash(b)
+
+
+def test_content_hash_handles_tags_with_commas() -> None:
+    a = _need("FACT_temp", NeedType.FACT, tags=["a,b", "c"])
+    b = _need("FACT_temp", NeedType.FACT, tags=["a", "b,c"])
+    assert content_hash(a) != content_hash(b)
