@@ -41,3 +41,57 @@ def test_content_hash_handles_tags_with_commas() -> None:
     a = _need("FACT_temp", NeedType.FACT, tags=["a,b", "c"])
     b = _need("FACT_temp", NeedType.FACT, tags=["a", "b,c"])
     assert content_hash(a) != content_hash(b)
+
+
+import numpy as np
+import pytest
+
+from papyrus.semantic import VectorStore
+
+
+def test_vectorstore_empty_when_missing(tmp_path) -> None:
+    store = VectorStore(tmp_path / ".papyrus", model="all-MiniLM-L6-v2", dim=4)
+    assert store.ids() == []
+    assert store.matrix().shape == (0, 4)
+
+
+def test_vectorstore_roundtrip(tmp_path) -> None:
+    store = VectorStore(tmp_path / ".papyrus", model="all-MiniLM-L6-v2", dim=4)
+    v1 = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    v2 = np.array([0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+    store.upsert([("FACT_a", v1, "hash-a"), ("FACT_b", v2, "hash-b")])
+    store.save()
+
+    reopened = VectorStore(tmp_path / ".papyrus", model="all-MiniLM-L6-v2", dim=4)
+    assert reopened.ids() == ["FACT_a", "FACT_b"]
+    assert reopened.hash_of("FACT_a") == "hash-a"
+    np.testing.assert_array_equal(reopened.matrix()[0], v1)
+
+
+def test_vectorstore_upsert_replaces(tmp_path) -> None:
+    store = VectorStore(tmp_path / ".papyrus", model="all-MiniLM-L6-v2", dim=4)
+    store.upsert([("FACT_a", np.array([1, 0, 0, 0], dtype=np.float32), "h1")])
+    store.upsert([("FACT_a", np.array([0, 1, 0, 0], dtype=np.float32), "h2")])
+    assert store.ids() == ["FACT_a"]
+    assert store.hash_of("FACT_a") == "h2"
+    np.testing.assert_array_equal(store.matrix()[0], np.array([0, 1, 0, 0], dtype=np.float32))
+
+
+def test_vectorstore_delete(tmp_path) -> None:
+    store = VectorStore(tmp_path / ".papyrus", model="all-MiniLM-L6-v2", dim=4)
+    store.upsert([
+        ("FACT_a", np.array([1, 0, 0, 0], dtype=np.float32), "h1"),
+        ("FACT_b", np.array([0, 1, 0, 0], dtype=np.float32), "h2"),
+    ])
+    store.delete(["FACT_a"])
+    assert store.ids() == ["FACT_b"]
+    assert store.matrix().shape == (1, 4)
+
+
+def test_vectorstore_model_mismatch_clears_on_load(tmp_path) -> None:
+    store = VectorStore(tmp_path / ".papyrus", model="model-v1", dim=4)
+    store.upsert([("FACT_a", np.array([1, 0, 0, 0], dtype=np.float32), "h1")])
+    store.save()
+
+    reopened = VectorStore(tmp_path / ".papyrus", model="model-v2", dim=4)
+    assert reopened.ids() == []
