@@ -227,3 +227,36 @@ def test_semantic_search_empty_index_returns_empty(tmp_path) -> None:
     encoder = _thermal_encoder()
     idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
     assert idx.search("anything") == []
+
+
+from papyrus.semantic import semantic_available
+
+
+def test_semantic_available_false_when_extra_missing(monkeypatch) -> None:
+    # Simulate missing sentence_transformers
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "sentence_transformers":
+            raise ImportError("not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert semantic_available() is False
+
+
+def test_semantic_available_true_when_stubbed(monkeypatch) -> None:
+    # Minimal stub: just importing sentence_transformers must succeed
+    import sys
+    import types
+    stub = types.ModuleType("sentence_transformers")
+
+    class _M:
+        def __init__(self, *_: object, **__: object) -> None: ...
+        def get_sentence_embedding_dimension(self) -> int: return 4
+        def encode(self, *_: object, **__: object) -> object: ...
+
+    stub.SentenceTransformer = _M  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "sentence_transformers", stub)
+    assert semantic_available() is True

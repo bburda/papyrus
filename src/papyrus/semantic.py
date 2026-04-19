@@ -289,3 +289,22 @@ class SemanticIndex:
             pairs.append(SemanticHit(id=nid, score=float(score)))
         pairs.sort(key=lambda h: -h.score)
         return pairs[:top_k]
+
+
+def semantic_available() -> bool:
+    """Cheap check for whether the optional extra is installed."""
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def build_default_index(workspace: Path) -> SemanticIndex:
+    """Factory used by CLI/MCP. Raises ImportError if extra is missing."""
+    encoder = SentenceTransformerEncoder()
+    return SemanticIndex(
+        Path(workspace) / ".papyrus",
+        encoder=encoder,
+        model_name=encoder.model_name,
+    )
