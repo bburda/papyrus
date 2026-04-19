@@ -186,3 +186,53 @@ def test_update_need_is_atomic_on_write_failure(tmp_path: Path, monkeypatch: pyt
     reloaded = backend.find_by_id("DEC_orig")
     assert reloaded is not None
     assert reloaded.title == "Original"
+
+
+def test_rebuild_index_also_runs_semantic_reindex_when_available(tmp_path, monkeypatch) -> None:
+    from papyrus.storage.rst import RSTBackend
+    from papyrus.models import NeedType
+    from datetime import UTC, datetime
+
+    backend = RSTBackend(tmp_path)
+    backend.init_workspace(tmp_path)
+    now = datetime.now(UTC)
+    backend.append_need(Need(
+        id="FACT_temp", type=NeedType.FACT, title="temperature", body="celsius",
+        created_at=now, updated_at=now,
+    ))
+
+    calls: list[list[str]] = []
+
+    class FakeIndex:
+        def reindex(self, needs):
+            calls.append([n.id for n in needs])
+            return len(needs)
+
+    def fake_factory(path):
+        return FakeIndex()
+
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    monkeypatch.setattr("papyrus.semantic.build_default_index", fake_factory)
+
+    count = backend.rebuild_index()
+    assert count == 1
+    assert calls == [["FACT_temp"]]
+
+
+def test_rebuild_index_skips_semantic_when_extra_missing(tmp_path, monkeypatch) -> None:
+    from papyrus.storage.rst import RSTBackend
+
+    backend = RSTBackend(tmp_path)
+    backend.init_workspace(tmp_path)
+
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: False)
+    called = False
+
+    def boom(_path):
+        nonlocal called
+        called = True
+        raise AssertionError("factory should not be called when extra missing")
+
+    monkeypatch.setattr("papyrus.semantic.build_default_index", boom)
+    backend.rebuild_index()  # must not raise
+    assert called is False
