@@ -203,8 +203,11 @@ class SentenceTransformerEncoder:
             ) from e
         self._model = SentenceTransformer(model_name)
         self._model_name = model_name
-        # sentence-transformers exposes .get_sentence_embedding_dimension()
-        self.dim = int(self._model.get_sentence_embedding_dimension())
+        # sentence-transformers 5.x renamed this to get_embedding_dimension; fall back to the old name on older releases.
+        get_dim = getattr(self._model, "get_embedding_dimension", None)
+        if get_dim is None:
+            get_dim = self._model.get_sentence_embedding_dimension
+        self.dim = int(get_dim())
 
     @property
     def model_name(self) -> str:
