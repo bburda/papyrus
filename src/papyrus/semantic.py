@@ -13,6 +13,15 @@ import hashlib
 from papyrus.models import Need
 
 
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, order=False)
+class SemanticHit:
+    id: str
+    score: float
+
+
 def content_hash(need: Need) -> str:
     """Stable sha256 over the semantically meaningful fields."""
     parts = [
@@ -258,3 +267,25 @@ class SemanticIndex:
         self.store.upsert(items)
         self.store.save()
         return len(to_embed)
+
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        filter_ids: set[str] | None = None,
+    ) -> list[SemanticHit]:
+        if not self.store.ids() or not query.strip():
+            return []
+        q = self.encoder.encode([query])[0]  # already L2-normalised by encoder contract
+        matrix = self.store.matrix()
+        # Cosine = dot product on L2-normalised vectors
+        scores = matrix @ q
+        ids = self.store.ids()
+        pairs: list[SemanticHit] = []
+        for nid, score in zip(ids, scores, strict=True):
+            if filter_ids is not None and nid not in filter_ids:
+                continue
+            pairs.append(SemanticHit(id=nid, score=float(score)))
+        pairs.sort(key=lambda h: -h.score)
+        return pairs[:top_k]
