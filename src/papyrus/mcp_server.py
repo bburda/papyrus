@@ -103,7 +103,11 @@ def _build_tool_definitions() -> list[Tool]:
     return [
         Tool(
             name="memory_recall",
-            description="Search memories (brief by default; filter by tags/type/query).",
+            description=(
+                "Search memories (brief by default). `semantic: true` switches to vector "
+                "similarity search over needs (requires papyrus[semantic] extra). Scores "
+                "are returned only when `show_scores: true`."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -111,6 +115,9 @@ def _build_tool_definitions() -> list[Tool]:
                     "type": {"type": "string", "enum": [t.value for t in NeedType]},
                     "query": {"type": "string"},
                     "format": {"type": "string", "enum": [f.value for f in QueryFormat], "default": "brief"},
+                    "semantic": {"type": "boolean", "default": False},
+                    "top_k": {"type": "integer", "default": 10, "minimum": 1, "maximum": 100},
+                    "show_scores": {"type": "boolean", "default": False},
                 },
             },
         ),
@@ -282,14 +289,43 @@ async def _handle_recall(p: PapyrusServer, args: dict) -> CallToolResult:
     if isinstance(tags_arg, str):
         tags_arg = [tags_arg]
     tags = list(tags_arg)
+    fmt = QueryFormat(args.get("format", QueryFormat.BRIEF.value))
+    annotations = scope_by_id if len(p.chain.list_scopes()) > 1 else None
+
+    if args.get("semantic"):
+        query = args.get("query") or ""
+        if not query.strip():
+            return _error("semantic=true requires a non-empty 'query'.")
+        from papyrus import semantic as sem
+        if not sem.semantic_available():
+            return _error("semantic search requires: pip install papyrus[semantic]")
+        narrowed = filter_needs(
+            all_needs,
+            tags=tags or None,
+            type=NeedType(type_arg) if type_arg else None,
+            query=None,
+        )
+        narrowed_ids = {n.id for n in narrowed}
+        primary_backend = p.chain.backend_for(p.chain.list_scopes()[0])
+        try:
+            idx = sem.build_default_index(primary_backend.workspace)
+        except ImportError as e:
+            return _error(str(e))
+        hits = idx.search(query, top_k=int(args.get("top_k", 10)), filter_ids=narrowed_ids)
+        by_id = {n.id: n for n in all_needs}
+        pairs = [(by_id[h.id], h.score) for h in hits if h.id in by_id]
+        from papyrus.query import render_with_scores
+        text = render_with_scores(
+            pairs, fmt, scope_by_id=annotations, show_scores=bool(args.get("show_scores", False)),
+        )
+        return _ok([TextContent(type="text", text=text)])
+
     filtered = filter_needs(
         all_needs,
         tags=tags or None,
         type=NeedType(type_arg) if type_arg else None,
         query=args.get("query"),
     )
-    fmt = QueryFormat(args.get("format", QueryFormat.BRIEF.value))
-    annotations = scope_by_id if len(p.chain.list_scopes()) > 1 else None
     return _ok([TextContent(type="text", text=render(filtered, fmt, scope_by_id=annotations))])
 
 
