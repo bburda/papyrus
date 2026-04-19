@@ -295,3 +295,84 @@ def test_add_duplicate_id_reports_cleanly(tmp_path: Path) -> None:
     # No traceback artifacts
     assert "Traceback" not in r2.output
     assert "ValueError" not in r2.output
+
+
+def test_recall_semantic_flag_without_extra_errors_cleanly(tmp_path: Path, monkeypatch) -> None:
+    ws = tmp_path / "ws"
+    runner = CliRunner()
+    runner.invoke(cli, ["init", str(ws)])
+
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: False)
+    result = runner.invoke(
+        cli,
+        ["--workspace", str(ws), "recall", "--semantic", "-q", "temperature"],
+    )
+    assert result.exit_code != 0
+    assert "papyrus[semantic]" in result.output
+
+
+def test_recall_semantic_returns_related(tmp_path: Path, monkeypatch) -> None:
+    from papyrus.semantic import FakeEncoder, SemanticIndex
+
+    ws = tmp_path / "ws"
+    runner = CliRunner()
+    runner.invoke(cli, ["init", str(ws)])
+    runner.invoke(
+        cli,
+        ["--workspace", str(ws), "add", "fact", "sensor celsius reading"],
+    )
+    runner.invoke(
+        cli,
+        ["--workspace", str(ws), "add", "dec", "use bcrypt password"],
+    )
+
+    encoder = FakeEncoder(
+        axes=["thermal", "auth"],
+        keyword_map={
+            "thermal": ["temperature", "celsius", "hot"],
+            "auth": ["password"],
+        },
+    )
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    monkeypatch.setattr(
+        "papyrus.semantic.build_default_index",
+        lambda ws_path: SemanticIndex(ws_path / ".papyrus", encoder=encoder, model_name="fake"),
+    )
+    # rebuild-index now uses the monkeypatched FakeEncoder to persist vectors
+    runner.invoke(cli, ["--workspace", str(ws), "rebuild-index"])
+
+    result = runner.invoke(
+        cli,
+        ["--workspace", str(ws), "recall", "--semantic", "-q", "temperature", "--top-k", "2"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "sensor celsius reading" in result.output
+    # The thermally-related need should rank above the password decision.
+    assert result.output.index("sensor celsius") < result.output.index("password")
+
+
+def test_recall_semantic_show_scores_prints_numbers(tmp_path: Path, monkeypatch) -> None:
+    from papyrus.semantic import FakeEncoder, SemanticIndex
+
+    ws = tmp_path / "ws"
+    runner = CliRunner()
+    runner.invoke(cli, ["init", str(ws)])
+    runner.invoke(cli, ["--workspace", str(ws), "add", "fact", "about temperature"])
+
+    encoder = FakeEncoder(axes=["x"], keyword_map={"x": ["temperature"]})
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    monkeypatch.setattr(
+        "papyrus.semantic.build_default_index",
+        lambda ws_path: SemanticIndex(ws_path / ".papyrus", encoder=encoder, model_name="fake"),
+    )
+    # rebuild-index now uses the monkeypatched FakeEncoder to persist vectors
+    runner.invoke(cli, ["--workspace", str(ws), "rebuild-index"])
+
+    result = runner.invoke(
+        cli,
+        ["--workspace", str(ws), "recall", "--semantic", "-q", "temperature", "--show-scores"],
+    )
+    assert result.exit_code == 0, result.output
+    first_line = result.output.strip().splitlines()[0]
+    # brief format with scores: "<score>  <id>..." — first token parses as a float digit sequence.
+    assert first_line.split()[0].replace(".", "").isdigit()
