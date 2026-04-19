@@ -79,3 +79,20 @@ def test_render_full_with_scope_annotation() -> None:
     n = _need("DEC_x", NeedType.DEC, body="rationale")
     out = render([n], QueryFormat.FULL, scope_by_id={"DEC_x": Scope.ORG})
     assert "from: org" in out
+
+
+def test_render_with_scores_brief_includes_score() -> None:
+    from papyrus.query import render_with_scores
+    n = _need("FACT_a", NeedType.FACT)
+    out = render_with_scores([(n, 0.8732)], QueryFormat.BRIEF)
+    assert "0.87" in out
+    assert "FACT_a" in out
+
+
+def test_render_with_scores_without_scores_falls_back_to_plain_render() -> None:
+    from papyrus.query import render_with_scores
+    n = _need("FACT_a", NeedType.FACT)
+    out_plain = render([n], QueryFormat.BRIEF)
+    out_scored = render_with_scores([(n, 0.5)], QueryFormat.BRIEF, show_scores=False)
+    # scored path without show_scores must match plain rendering
+    assert out_plain == out_scored
