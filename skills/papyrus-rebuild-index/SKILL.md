@@ -1,17 +1,17 @@
 ---
 name: papyrus-rebuild-index
-description: Atomic — regenerate .papyrus/index.json for a workspace
+description: Atomic — regenerate .papyrus/index.json and (optionally) semantic vectors for a workspace
 ---
 
 # papyrus-rebuild-index
 
-Rebuild the JSON index for one workspace. Picks up external edits to RST files.
+Rebuild the JSON index for one workspace. Picks up external edits to RST files. When the optional `papyrus[semantic]` extra is installed, also re-embeds needs whose content hash changed into `<workspace>/.papyrus/vectors.npy` (and drops vectors for needs that no longer exist). Semantic reindex failures are swallowed so the base JSON rebuild never breaks.
 
 ## Atomicity
 
-- (a) Indivisible: load_needs → write index.json, filelocked
+- (a) Indivisible: load_needs → write index.json → (if extra installed) incremental vector reindex, all under one filelock
 - (b) Input: scope (which workspace). Output: count of needs written
-- (c) Objective reward: `<workspace>/.papyrus/index.json` exists and contains exactly `count` needs
+- (c) Objective reward: `<workspace>/.papyrus/index.json` exists and contains exactly `count` needs; when extra is installed, `vectors.npy` exists with one row per current need
 - (d) Reusable: after bulk edits, merge conflicts, verify flows
 - (e) No interference: single workspace, filelocked
 
@@ -22,6 +22,7 @@ input:
   workspace: scope name (local|program|org); defaults to default_write
 output:
   side effect: <workspace>/.papyrus/index.json rewritten
+                <workspace>/.papyrus/vectors.npy + vectors_meta.json rewritten if papyrus[semantic] installed
   stdout: "Rebuilt index for <scope>: <N> needs"
   exit: 0
 ```
@@ -31,6 +32,8 @@ output:
 After invocation:
 ```bash
 test -f <workspace>/.papyrus/index.json
+# plus, when papyrus[semantic] is installed:
+test -f <workspace>/.papyrus/vectors.npy
 ```
 And parsed JSON has `"needs": [...]` list of length N.
 
@@ -56,3 +59,4 @@ MCP tool `memory_rebuild`:
 ## See also
 
 - `papyrus-validate-links` — often chained after rebuild
+- `papyrus-query` — `--semantic` mode depends on a prior rebuild to populate vectors
