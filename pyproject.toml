@@ -47,6 +47,10 @@ dev = [
     "pyright>=1.1",
     "ruff>=0.2",
 ]
+semantic = [
+    "sentence-transformers>=2.5",
+    "numpy>=1.26",
+]
 
 [project.scripts]
 papyrus = "papyrus.cli:cli"
