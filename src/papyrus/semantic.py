@@ -206,7 +206,9 @@ class SentenceTransformerEncoder:
 
     def __init__(self, model_name: str = _DEFAULT_MODEL) -> None:
         try:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import (
+                SentenceTransformer,  # pyright: ignore[reportMissingImports]
+            )
         except ImportError as e:
             raise ImportError(
                 "papyrus semantic features require the 'semantic' extra. "
@@ -310,7 +312,7 @@ class SemanticIndex:
 def semantic_available() -> bool:
     """Cheap check for whether the optional extra is installed."""
     try:
-        import sentence_transformers  # noqa: F401
+        import sentence_transformers  # noqa: F401  # pyright: ignore[reportMissingImports]
     except ImportError:
         return False
     return True
