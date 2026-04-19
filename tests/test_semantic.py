@@ -95,3 +95,36 @@ def test_vectorstore_model_mismatch_clears_on_load(tmp_path) -> None:
 
     reopened = VectorStore(tmp_path / ".papyrus", model="model-v2", dim=4)
     assert reopened.ids() == []
+
+
+from papyrus.semantic import Encoder, FakeEncoder
+
+
+def test_fake_encoder_matches_keywords_deterministically() -> None:
+    enc = FakeEncoder(
+        axes=["thermal", "auth", "network"],
+        keyword_map={"thermal": ["temperature", "celsius", "hot", "cold", "fahrenheit"],
+                     "auth": ["password", "login", "credential"],
+                     "network": ["tcp", "socket", "packet"]},
+    )
+    v1 = enc.encode(["sensor reads temperature in celsius"])[0]
+    v2 = enc.encode(["user entered wrong password"])[0]
+    assert v1.shape == (3,)
+    # thermal axis dominates v1
+    assert v1[0] > v1[1] and v1[0] > v1[2]
+    # auth axis dominates v2
+    assert v2[1] > v2[0] and v2[1] > v2[2]
+
+
+def test_fake_encoder_is_l2_normalised() -> None:
+    enc = FakeEncoder(axes=["a", "b"], keyword_map={"a": ["x"], "b": ["y"]})
+    vecs = enc.encode(["x y", "x x"])
+    norms = np.linalg.norm(vecs, axis=1)
+    np.testing.assert_allclose(norms, 1.0, atol=1e-6)
+
+
+def test_encoder_protocol_structural() -> None:
+    enc: Encoder = FakeEncoder(axes=["a"], keyword_map={"a": ["x"]})
+    assert enc.dim == 1
+    out = enc.encode(["x"])
+    assert out.shape == (1, 1)

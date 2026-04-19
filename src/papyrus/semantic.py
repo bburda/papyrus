@@ -130,3 +130,79 @@ class VectorStore:
         tmp = self.meta_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(meta, indent=2))
         tmp.replace(self.meta_path)
+
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Encoder(Protocol):
+    """Anything that turns a list of strings into an (N, dim) float32 matrix of L2-unit vectors."""
+
+    dim: int
+
+    def encode(self, texts: list[str]) -> "np.ndarray": ...
+
+
+class FakeEncoder:
+    """Test-only deterministic encoder. Maps keywords to named axes."""
+
+    def __init__(self, *, axes: list[str], keyword_map: dict[str, list[str]]) -> None:
+        import numpy as np
+
+        self._np = np
+        self.dim = len(axes)
+        self._axis_index = {axis: i for i, axis in enumerate(axes)}
+        self._keyword_to_axis: dict[str, int] = {}
+        for axis, keywords in keyword_map.items():
+            if axis not in self._axis_index:
+                raise ValueError(f"axis {axis!r} not in axes")
+            for kw in keywords:
+                self._keyword_to_axis[kw.casefold()] = self._axis_index[axis]
+
+    def encode(self, texts: list[str]) -> "np.ndarray":
+        out = self._np.zeros((len(texts), self.dim), dtype=self._np.float32)
+        for row, text in enumerate(texts):
+            lowered = text.casefold()
+            for kw, axis in self._keyword_to_axis.items():
+                if kw in lowered:
+                    out[row, axis] += 1.0
+        # L2 normalise; zero vectors stay zero
+        norms = self._np.linalg.norm(out, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return out / norms
+
+
+_DEFAULT_MODEL = "all-MiniLM-L6-v2"
+_DEFAULT_DIM = 384
+
+
+class SentenceTransformerEncoder:
+    """Production encoder. Requires `pip install papyrus[semantic]`.
+
+    Import of `sentence_transformers` is deferred to __init__ so the
+    module-level import graph stays lightweight.
+    """
+
+    def __init__(self, model_name: str = _DEFAULT_MODEL) -> None:
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError as e:
+            raise ImportError(
+                "papyrus semantic features require the 'semantic' extra. "
+                "Install with: pip install papyrus[semantic]"
+            ) from e
+        self._model = SentenceTransformer(model_name)
+        self._model_name = model_name
+        # sentence-transformers exposes .get_sentence_embedding_dimension()
+        self.dim = int(self._model.get_sentence_embedding_dimension())
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    def encode(self, texts: list[str]) -> "np.ndarray":
+        import numpy as np
+
+        arr = self._model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
+        return arr.astype(np.float32, copy=False)
