@@ -19,30 +19,35 @@ Rebuild the JSON index for one workspace. Picks up external edits to RST files. 
 
 ```
 input:
-  workspace: scope name (local|program|org); defaults to default_write
+  (none; rebuilds every RST workspace in the chain)
 output:
-  side effect: <workspace>/.papyrus/index.json rewritten
-                <workspace>/.papyrus/vectors.npy + vectors_meta.json rewritten if papyrus[semantic] installed
-  stdout: "Rebuilt index for <scope>: <N> needs"
+  side effect: for each scope in chain: <workspace>/.papyrus/index.json rewritten
+                plus <workspace>/.papyrus/vectors.npy + vectors_meta.json if papyrus[semantic] installed
+  stdout: "Rebuilt index: <total> need(s) indexed."
   exit: 0
 ```
 
 ## Success criterion
 
-After invocation:
+After invocation, for each RST backend in the chain:
 ```bash
 test -f <workspace>/.papyrus/index.json
 # plus, when papyrus[semantic] is installed:
 test -f <workspace>/.papyrus/vectors.npy
 ```
-And parsed JSON has `"needs": [...]` list of length N.
+And parsed JSON has `"needs": [...]` list whose total length matches the `<total>` printed on stdout.
 
 ## Workflow
+
+```bash
+papyrus --workspace <dir> rebuild-index
+```
 
 MCP tool `memory_rebuild`:
 ```json
 {"workspace": "local"}
 ```
+(The MCP tool is per-scope; the CLI command iterates all scopes in one call.)
 
 ## Composition examples
 
