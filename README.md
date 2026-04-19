@@ -25,6 +25,16 @@ Verify:
 papyrus --version
 ```
 
+### Optional: semantic search
+
+```bash
+uv pip install -e ".[semantic]"
+```
+
+Adds the `all-MiniLM-L6-v2` model (English-only, ~90 MB on first use).
+Enables `papyrus recall --semantic -q "..."` for similarity search over
+titles, bodies, and tags.
+
 ## Quick start
 
 ```bash
