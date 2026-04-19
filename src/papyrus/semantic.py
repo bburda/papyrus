@@ -206,8 +206,8 @@ class SentenceTransformerEncoder:
 
     def __init__(self, model_name: str = _DEFAULT_MODEL) -> None:
         try:
-            from sentence_transformers import (
-                SentenceTransformer,  # pyright: ignore[reportMissingImports]
+            from sentence_transformers import (  # pyright: ignore[reportMissingImports]
+                SentenceTransformer,
             )
         except ImportError as e:
             raise ImportError(
