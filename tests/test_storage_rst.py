@@ -189,9 +189,10 @@ def test_update_need_is_atomic_on_write_failure(tmp_path: Path, monkeypatch: pyt
 
 
 def test_rebuild_index_also_runs_semantic_reindex_when_available(tmp_path, monkeypatch) -> None:
-    from papyrus.storage.rst import RSTBackend
-    from papyrus.models import NeedType
     from datetime import UTC, datetime
+
+    from papyrus.models import NeedType
+    from papyrus.storage.rst import RSTBackend
 
     backend = RSTBackend(tmp_path)
     backend.init_workspace(tmp_path)

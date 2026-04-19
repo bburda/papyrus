@@ -236,13 +236,16 @@ class RSTBackend(StorageBackend):
             (idx_dir / "index.json").write_text(json.dumps(payload, indent=2))
 
             # Optional semantic reindex; silently skipped when extra missing.
+            # The broad except is intentional: model-load failures, OOM during
+            # embedding, or a corrupt sidecar must never block the base JSON
+            # rebuild. Papyrus has no logger yet, so this swallow is currently
+            # unobservable — revisit when we add structured logging.
             from papyrus import semantic as _semantic
             if _semantic.semantic_available():
                 try:
                     sem_idx = _semantic.build_default_index(self.workspace)
                     sem_idx.reindex(needs)
                 except Exception:  # noqa: BLE001
-                    # Never let semantic errors break the base rebuild.
                     pass
 
             return len(needs)
