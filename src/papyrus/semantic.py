@@ -296,6 +296,8 @@ class SemanticIndex:
         top_k: int = 10,
         filter_ids: set[str] | None = None,
     ) -> list[SemanticHit]:
+        if top_k < 1:
+            raise ValueError(f"top_k must be >= 1, got {top_k}")
         if not self.store.ids() or not query.strip():
             return []
         q = self.encoder.encode([query])[0]  # already L2-normalised by encoder contract
@@ -313,19 +315,28 @@ class SemanticIndex:
 
 
 def semantic_available() -> bool:
-    """Cheap check for whether the optional extra is installed."""
+    """Cheap check for whether the optional extra is installed AND importable.
+
+    Returns False on any import-time failure, not just ImportError — torch/CUDA
+    native-extension init can raise unrelated exceptions. Callers surface a
+    single "semantic unavailable" error instead of bubbling a traceback.
+    """
     try:
         import sentence_transformers  # noqa: F401  # pyright: ignore[reportMissingImports]
-    except ImportError:
+    except Exception:  # noqa: BLE001
         return False
     return True
 
 
-def build_default_index(workspace: Path) -> SemanticIndex:
-    """Factory used by CLI/MCP. Raises ImportError if extra is missing."""
-    encoder = SentenceTransformerEncoder()
+def build_default_index(workspace: Path, *, encoder: Encoder | None = None) -> SemanticIndex:
+    """Factory used by CLI/MCP. Raises ImportError if extra is missing.
+
+    Pass a shared ``encoder`` when searching multiple workspaces in one call
+    to avoid re-loading the model per scope.
+    """
+    enc = encoder if encoder is not None else SentenceTransformerEncoder()
     return SemanticIndex(
         Path(workspace) / ".papyrus",
-        encoder=encoder,
-        model_name=encoder.model_name,
+        encoder=enc,
+        model_name=getattr(enc, "model_name", _DEFAULT_MODEL),
     )

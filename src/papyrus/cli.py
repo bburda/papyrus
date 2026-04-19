@@ -185,15 +185,26 @@ def recall(
         )
         narrowed_ids = {n.id for n in narrowed}
 
-        primary_backend = chain.backend_for(chain.list_scopes()[0])
-        try:
-            idx = sem.build_default_index(primary_backend.workspace)
-        except ImportError as e:
-            raise click.ClickException(str(e)) from e
-        hits = idx.search(query, top_k=top_k, filter_ids=narrowed_ids)
+        # Query every scope's vector index, keep the highest score per id.
+        # build_default_index creates one encoder per call; tests monkey-patch
+        # the factory so we pass no shared encoder here (keeps the test
+        # signature minimal). In production each scope re-instantiates the
+        # model — slow only when the user configures >1 scope, which is rare.
+        merged: dict[str, sem.SemanticHit] = {}
+        for scope in chain.list_scopes():
+            backend = chain.backend_for(scope)
+            try:
+                idx = sem.build_default_index(backend.workspace)
+            except ImportError as e:
+                raise click.ClickException(str(e)) from e
+            for hit in idx.search(query, top_k=top_k, filter_ids=narrowed_ids):
+                prev = merged.get(hit.id)
+                if prev is None or hit.score > prev.score:
+                    merged[hit.id] = hit
+        ranked = sorted(merged.values(), key=lambda h: -h.score)[:top_k]
 
         by_id = {n.id: n for n in needs}
-        pairs = [(by_id[h.id], h.score) for h in hits if h.id in by_id]
+        pairs = [(by_id[h.id], h.score) for h in ranked if h.id in by_id]
         click.echo(render_with_scores(pairs, QueryFormat(fmt),
                                       scope_by_id=annotations, show_scores=show_scores))
         return
