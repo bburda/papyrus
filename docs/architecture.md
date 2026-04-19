@@ -104,3 +104,29 @@ Links are serialised as sphinx-needs option fields, keyed by link
 type. An `ExternalNeedsIndex` load is symmetric: anything a pharaoh
 project produces with sphinx-needs is consumable; anything Papyrus
 writes is consumable by a pharaoh build without modification.
+
+## Semantic search (optional)
+
+Papyrus ships a sidecar vector index for similarity search. It is gated
+by the `semantic` extra — install with `pip install papyrus[semantic]` —
+and is **English-only**; the default model (`all-MiniLM-L6-v2`) is
+trained on English corpora and gives poor recall on other languages.
+
+The index lives in `<workspace>/.papyrus/vectors.npy` alongside a JSON
+metadata file recording the model name, dimension, and per-need content
+hash. On `papyrus rebuild-index` we re-embed only needs whose hash
+changed and drop rows for needs that no longer exist.
+
+Query flow (`papyrus recall --semantic -q "..."`):
+
+1. Tag and type filters narrow the candidate pool using the existing
+   lexical filter.
+2. The query string is encoded with the same model and compared to
+   candidate vectors by cosine similarity.
+3. The top-K hits are rendered using the standard `brief / compact /
+   full` formats. `--show-scores` prepends the similarity score
+   (developer aid).
+
+If `sentence-transformers` is not installed, `rebuild-index` silently
+skips the vector step and `recall --semantic` reports a clean error
+pointing at the extra.
