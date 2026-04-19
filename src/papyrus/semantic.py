@@ -42,6 +42,10 @@ class VectorStore:
     Model mismatch on load is treated as a full invalidation — the old
     vectors are dropped in memory, not deleted from disk until the next
     save(). Callers should rebuild after a mismatch.
+
+    **Thread safety:** Not thread-safe. Callers must serialise upsert / delete /
+    save across threads or processes (Papyrus uses ``FileLock`` in
+    ``RSTBackend.rebuild_index``, which is the only production call site).
     """
 
     def __init__(self, base: Path, *, model: str, dim: int) -> None:
@@ -90,6 +94,7 @@ class VectorStore:
         return self._hashes.get(need_id)
 
     def matrix(self) -> "np.ndarray":
+        """Return the internal (N, dim) matrix. DO NOT MUTATE — live view for read-only cosine search."""
         return self._matrix
 
     def upsert(self, items: list[tuple[str, "np.ndarray", str]]) -> None:
