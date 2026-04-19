@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from papyrus.models import Need, NeedType
-from papyrus.semantic import content_hash
+from papyrus.semantic import SemanticIndex, content_hash
 
 
 def _need(nid: str, ntype: NeedType, **extra: object) -> Need:
@@ -131,7 +131,6 @@ def test_encoder_protocol_structural() -> None:
 
 
 def test_semantic_index_reindex_embeds_all(tmp_path) -> None:
-    from papyrus.semantic import SemanticIndex
     encoder = _thermal_encoder()
     idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
     needs = [
@@ -144,7 +143,6 @@ def test_semantic_index_reindex_embeds_all(tmp_path) -> None:
 
 
 def test_semantic_index_reindex_is_incremental(tmp_path) -> None:
-    from papyrus.semantic import SemanticIndex
     encoder = _thermal_encoder()
     idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
     n1 = _need("FACT_temp", NeedType.FACT, body="celsius")
@@ -155,7 +153,6 @@ def test_semantic_index_reindex_is_incremental(tmp_path) -> None:
 
 
 def test_semantic_index_reindex_reembeds_changed(tmp_path) -> None:
-    from papyrus.semantic import SemanticIndex
     encoder = _thermal_encoder()
     idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
     n1 = _need("FACT_temp", NeedType.FACT, body="celsius")
@@ -166,7 +163,6 @@ def test_semantic_index_reindex_reembeds_changed(tmp_path) -> None:
 
 
 def test_semantic_index_reindex_removes_orphans(tmp_path) -> None:
-    from papyrus.semantic import SemanticIndex
     encoder = _thermal_encoder()
     idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
     n1 = _need("FACT_temp", NeedType.FACT, body="celsius")
@@ -185,3 +181,49 @@ def _thermal_encoder() -> FakeEncoder:
             "other": ["foo", "bar"],
         },
     )
+
+
+def test_semantic_search_returns_related_ids(tmp_path) -> None:
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    idx.reindex([
+        _need("FACT_temp", NeedType.FACT, body="sensor reads celsius and fahrenheit"),
+        _need("DEC_auth", NeedType.DEC, body="use password hashing"),
+        _need("RISK_hot", NeedType.RISK, body="enclosure gets hot in summer"),
+    ])
+    hits = idx.search("temperature", top_k=5)
+    ids = [h.id for h in hits]
+    # Both thermal-axis needs should rank before the auth need
+    assert ids.index("FACT_temp") < ids.index("DEC_auth")
+    assert ids.index("RISK_hot") < ids.index("DEC_auth")
+    # Scores are in [0,1] descending
+    assert all(0 <= h.score <= 1 for h in hits)
+    assert hits == sorted(hits, key=lambda h: -h.score)
+
+
+def test_semantic_search_respects_id_filter(tmp_path) -> None:
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    idx.reindex([
+        _need("FACT_temp", NeedType.FACT, body="celsius"),
+        _need("DEC_auth", NeedType.DEC, body="password"),
+    ])
+    hits = idx.search("temperature", top_k=5, filter_ids={"DEC_auth"})
+    assert [h.id for h in hits] == ["DEC_auth"]
+
+
+def test_semantic_search_top_k(tmp_path) -> None:
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    idx.reindex([
+        _need("FACT_a", NeedType.FACT, body="celsius"),
+        _need("FACT_b", NeedType.FACT, body="fahrenheit"),
+        _need("FACT_c", NeedType.FACT, body="hot"),
+    ])
+    assert len(idx.search("temperature", top_k=2)) == 2
+
+
+def test_semantic_search_empty_index_returns_empty(tmp_path) -> None:
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    assert idx.search("anything") == []
