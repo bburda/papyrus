@@ -109,7 +109,7 @@ def test_skills_reference_real_cli_commands() -> None:
     valid_subcommands = {
         "init", "add", "recall", "get", "promote",
         "mcp-serve", "verify", "query", "drill",
-        "link", "impact", "trace",
+        "link", "impact", "trace", "rebuild-index",
         "--version", "--help", "--config", "--workspace",
     }
     # \b before "papyrus" ensures we don't match ".papyrus\n" (dot-prefixed paths).

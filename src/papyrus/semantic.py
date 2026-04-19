@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_MODEL = "all-MiniLM-L6-v2"
-_DEFAULT_DIM = 384
 
 # NUL byte separator for content_hash — practically never appears in user text,
 # so field boundaries can't be forged by newlines or commas in title/body/tags.
@@ -91,23 +90,22 @@ class VectorStore:
             return
         try:
             meta = json.loads(self.meta_path.read_text())
-        except (OSError, json.JSONDecodeError):
+            if meta.get("model") != self.model or meta.get("dim") != self.dim:
+                return  # invalidate silently; next save() rewrites both files
+            ids = [e["id"] for e in meta.get("entries", [])]
+            hashes = {e["id"]: e["hash"] for e in meta.get("entries", [])}
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, AttributeError):
+            # Corrupt or partially-written meta — silent invalidation.
             return
-        if meta.get("model") != self.model or meta.get("dim") != self.dim:
-            return  # invalidate silently; next save() rewrites both files
-        self._ids = [e["id"] for e in meta.get("entries", [])]
-        self._hashes = {e["id"]: e["hash"] for e in meta.get("entries", [])}
         try:
             matrix = self._np.load(self.npy_path)
         except (OSError, ValueError, EOFError):
-            # Corrupt or truncated npy — reset, next save() will rewrite.
-            self._ids = []
-            self._hashes = {}
+            # Corrupt or truncated npy — next save() will rewrite.
             return
-        if matrix.shape != (len(self._ids), self.dim):
-            self._ids = []
-            self._hashes = {}
+        if matrix.shape != (len(ids), self.dim):
             return
+        self._ids = ids
+        self._hashes = hashes
         self._matrix = matrix.astype(self._np.float32, copy=False)
 
     def ids(self) -> list[str]:
@@ -148,7 +146,12 @@ class VectorStore:
 
     def save(self) -> None:
         self.base.mkdir(parents=True, exist_ok=True)
-        self._np.save(self.npy_path, self._matrix)
+        # Write vectors.npy via tmp+replace. Passing a file object avoids
+        # numpy's auto-".npy" suffix append on string/Path arguments.
+        npy_tmp = self.npy_path.with_suffix(".npy.tmp")
+        with npy_tmp.open("wb") as f:
+            self._np.save(f, self._matrix)
+        npy_tmp.replace(self.npy_path)
         meta = {
             "model": self.model,
             "dim": self.dim,
