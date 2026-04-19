@@ -15,7 +15,7 @@ from papyrus.graph import Node
 from papyrus.models import Confidence, Link, LinkType, Need, NeedType, Scope, Status
 from papyrus.promote import PromoteError
 from papyrus.promote import promote as promote_need
-from papyrus.query import QueryFormat, filter_needs, render
+from papyrus.query import QueryFormat, filter_needs, render, render_with_scores
 from papyrus.storage.rst import RSTBackend
 from papyrus.workspace import WorkspaceChain
 
@@ -138,7 +138,12 @@ def add(
 @cli.command()
 @click.option("--tag", "tags", multiple=True, help="Filter by tag (repeatable; AND).")
 @click.option("--type", "type_", type=click.Choice([t.value for t in NeedType]), default=None)
-@click.option("--query", "-q", default=None, help="Substring match against title/body.")
+@click.option("--query", "-q", default=None, help="Substring match (or semantic query with --semantic).")
+@click.option("--semantic", "semantic", is_flag=True, default=False,
+              help="Use vector similarity instead of substring match (requires papyrus[semantic]).")
+@click.option("--top-k", "top_k", type=int, default=10, help="Max semantic hits to return.")
+@click.option("--show-scores", "show_scores", is_flag=True, default=False,
+              help="Developer aid: prefix each result with the similarity score.")
 @click.option(
     "--format", "fmt",
     type=click.Choice([f.value for f in QueryFormat]),
@@ -151,6 +156,9 @@ def recall(
     tags: tuple[str, ...],
     type_: str | None,
     query: str | None,
+    semantic: bool,
+    top_k: int,
+    show_scores: bool,
     fmt: str,
 ) -> None:
     """Search memories (brief by default; drill down with --format)."""
@@ -158,6 +166,37 @@ def recall(
     scoped = chain.resolve_read()
     needs = [sn.need for sn in scoped]
     scope_by_id = {sn.need.id: sn.scope for sn in scoped}
+    annotations = scope_by_id if len(chain.list_scopes()) > 1 else None
+
+    if semantic:
+        if not query:
+            raise click.ClickException("--semantic requires -q/--query.")
+        from papyrus import semantic as sem
+        if not sem.semantic_available():
+            raise click.ClickException(
+                "semantic search requires: pip install papyrus[semantic]"
+            )
+
+        narrowed = filter_needs(
+            needs,
+            tags=list(tags) or None,
+            type=NeedType(type_) if type_ else None,
+            query=None,
+        )
+        narrowed_ids = {n.id for n in narrowed}
+
+        primary_backend = chain.backend_for(chain.list_scopes()[0])
+        try:
+            idx = sem.build_default_index(primary_backend.workspace)
+        except ImportError as e:
+            raise click.ClickException(str(e)) from e
+        hits = idx.search(query, top_k=top_k, filter_ids=narrowed_ids)
+
+        by_id = {n.id: n for n in needs}
+        pairs = [(by_id[h.id], h.score) for h in hits if h.id in by_id]
+        click.echo(render_with_scores(pairs, QueryFormat(fmt),
+                                      scope_by_id=annotations, show_scores=show_scores))
+        return
 
     filtered = filter_needs(
         needs,
@@ -165,8 +204,23 @@ def recall(
         type=NeedType(type_) if type_ else None,
         query=query,
     )
-    annotations = scope_by_id if len(chain.list_scopes()) > 1 else None
     click.echo(render(filtered, QueryFormat(fmt), scope_by_id=annotations))
+
+
+@cli.command(name="rebuild-index")
+@click.pass_context
+def rebuild_index(ctx: click.Context) -> None:
+    """Rebuild .papyrus/index.json (and semantic vectors if extra is installed)."""
+    from papyrus.storage.rst import RSTBackend
+
+    chain, _, _ = _load_chain_from_ctx(ctx)
+    total = 0
+    for scope in chain.list_scopes():
+        backend = chain.backend_for(scope)
+        if isinstance(backend, RSTBackend):
+            count = backend.rebuild_index()
+            total += count
+    click.echo(f"Rebuilt index: {total} need(s) indexed.")
 
 
 @cli.command()
