@@ -9,11 +9,24 @@ to keep the lightweight install path usable.
 from __future__ import annotations
 
 import hashlib
+import json
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from papyrus.models import Need
 
+if TYPE_CHECKING:
+    import numpy as np
 
-from dataclasses import dataclass
+
+_DEFAULT_MODEL = "all-MiniLM-L6-v2"
+_DEFAULT_DIM = 384
+
+# NUL byte separator for content_hash — practically never appears in user text,
+# so field boundaries can't be forged by newlines or commas in title/body/tags.
+_FIELD_SEP = "\x00"
 
 
 @dataclass(frozen=True, order=False)
@@ -23,22 +36,18 @@ class SemanticHit:
 
 
 def content_hash(need: Need) -> str:
-    """Stable sha256 over the semantically meaningful fields."""
+    """Stable sha256 over title, body, and sorted tags.
+
+    Field and tag separators use NUL bytes so newlines or commas in the
+    user-supplied fields cannot forge a matching hash.
+    """
     parts = [
         need.title,
         need.body,
-        "\n".join(sorted(need.tags)),
+        _FIELD_SEP.join(sorted(need.tags)),
     ]
-    payload = "\n".join(parts).encode("utf-8")
+    payload = _FIELD_SEP.join(parts).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
-
-
-import json
-from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import numpy as np
 
 
 class VectorStore:
@@ -88,9 +97,14 @@ class VectorStore:
             return  # invalidate silently; next save() rewrites both files
         self._ids = [e["id"] for e in meta.get("entries", [])]
         self._hashes = {e["id"]: e["hash"] for e in meta.get("entries", [])}
-        matrix = self._np.load(self.npy_path)
+        try:
+            matrix = self._np.load(self.npy_path)
+        except (OSError, ValueError, EOFError):
+            # Corrupt or truncated npy — reset, next save() will rewrite.
+            self._ids = []
+            self._hashes = {}
+            return
         if matrix.shape != (len(self._ids), self.dim):
-            # Corrupt — reset.
             self._ids = []
             self._hashes = {}
             return
@@ -102,12 +116,16 @@ class VectorStore:
     def hash_of(self, need_id: str) -> str | None:
         return self._hashes.get(need_id)
 
-    def matrix(self) -> "np.ndarray":
+    def matrix(self) -> np.ndarray:
         """Return the internal (N, dim) matrix. DO NOT MUTATE — live view for read-only cosine search."""
         return self._matrix
 
-    def upsert(self, items: list[tuple[str, "np.ndarray", str]]) -> None:
-        """Insert or replace (id, vector, content_hash) triples in memory."""
+    def upsert(self, items: list[tuple[str, np.ndarray, str]]) -> None:
+        """Insert or replace (id, vector, content_hash) triples in memory.
+
+        Existing-id lookup is O(N) per call; suitable for corpora up to ~10 k
+        needs, which covers all realistic Papyrus workspaces.
+        """
         for need_id, vec, content_hash_ in items:
             if vec.shape != (self.dim,):
                 raise ValueError(f"vector for {need_id!r} has shape {vec.shape}, expected ({self.dim},)")
@@ -141,16 +159,13 @@ class VectorStore:
         tmp.replace(self.meta_path)
 
 
-from typing import Protocol, runtime_checkable
-
-
 @runtime_checkable
 class Encoder(Protocol):
     """Anything that turns a list of strings into an (N, dim) float32 matrix of L2-unit vectors."""
 
     dim: int
 
-    def encode(self, texts: list[str]) -> "np.ndarray": ...
+    def encode(self, texts: list[str]) -> np.ndarray: ...
 
 
 class FakeEncoder:
@@ -169,7 +184,7 @@ class FakeEncoder:
             for kw in keywords:
                 self._keyword_to_axis[kw.casefold()] = self._axis_index[axis]
 
-    def encode(self, texts: list[str]) -> "np.ndarray":
+    def encode(self, texts: list[str]) -> np.ndarray:
         out = self._np.zeros((len(texts), self.dim), dtype=self._np.float32)
         for row, text in enumerate(texts):
             lowered = text.casefold()
@@ -180,10 +195,6 @@ class FakeEncoder:
         norms = self._np.linalg.norm(out, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         return out / norms
-
-
-_DEFAULT_MODEL = "all-MiniLM-L6-v2"
-_DEFAULT_DIM = 384
 
 
 class SentenceTransformerEncoder:
@@ -204,22 +215,25 @@ class SentenceTransformerEncoder:
         self._model = SentenceTransformer(model_name)
         self._model_name = model_name
         # sentence-transformers 5.x renamed this to get_embedding_dimension; fall back to the old name on older releases.
-        get_dim = getattr(self._model, "get_embedding_dimension", None)
-        if get_dim is None:
-            get_dim = self._model.get_sentence_embedding_dimension
-        self.dim = int(get_dim())
+        get_dim = getattr(
+            self._model,
+            "get_embedding_dimension",
+            self._model.get_sentence_embedding_dimension,
+        )
+        dim = get_dim()
+        if dim is None:
+            raise RuntimeError(f"model {model_name!r} reports no embedding dimension")
+        self.dim = int(dim)
 
     @property
     def model_name(self) -> str:
         return self._model_name
 
-    def encode(self, texts: list[str]) -> "np.ndarray":
+    def encode(self, texts: list[str]) -> np.ndarray:
         import numpy as np
 
         arr = self._model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
         return arr.astype(np.float32, copy=False)
-
-from collections.abc import Iterable
 
 
 def _need_text(need: Need) -> str:
@@ -252,11 +266,10 @@ class SemanticIndex:
         if orphans:
             self.store.delete(orphans)
 
-        to_embed: list[tuple[str, Need]] = []
-        for n in needs_list:
-            h = content_hash(n)
-            if self.store.hash_of(n.id) != h:
-                to_embed.append((n.id, n))
+        hashes: dict[str, str] = {n.id: content_hash(n) for n in needs_list}
+        to_embed: list[tuple[str, Need]] = [
+            (n.id, n) for n in needs_list if self.store.hash_of(n.id) != hashes[n.id]
+        ]
         if not to_embed:
             if orphans:
                 self.store.save()
@@ -264,8 +277,8 @@ class SemanticIndex:
 
         texts = [_need_text(n) for _, n in to_embed]
         vectors = self.encoder.encode(texts)
-        items: list[tuple[str, "np.ndarray", str]] = [
-            (nid, vectors[row], content_hash(n)) for row, (nid, n) in enumerate(to_embed)
+        items: list[tuple[str, np.ndarray, str]] = [
+            (nid, vectors[row], hashes[nid]) for row, (nid, _) in enumerate(to_embed)
         ]
         self.store.upsert(items)
         self.store.save()

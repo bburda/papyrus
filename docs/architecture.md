@@ -125,7 +125,9 @@ Query flow (`papyrus recall --semantic -q "..."`):
    candidate vectors by cosine similarity.
 3. The top-K hits are rendered using the standard `brief / compact /
    full` formats. `--show-scores` prepends the similarity score
-   (developer aid).
+   (developer aid). Scores are cosine similarities in `[-1, 1]`;
+   negative values indicate no semantic overlap between the query and
+   the need.
 
 If `sentence-transformers` is not installed, `rebuild-index` silently
 skips the vector step and `recall --semantic` reports a clean error

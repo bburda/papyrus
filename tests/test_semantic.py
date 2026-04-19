@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import numpy as np
+
 from papyrus.models import Need, NeedType
-from papyrus.semantic import SemanticIndex, content_hash
+from papyrus.semantic import (
+    Encoder,
+    FakeEncoder,
+    SemanticIndex,
+    VectorStore,
+    content_hash,
+    semantic_available,
+)
 
 
 def _need(nid: str, ntype: NeedType, **extra: object) -> Need:
@@ -43,10 +52,27 @@ def test_content_hash_handles_tags_with_commas() -> None:
     assert content_hash(a) != content_hash(b)
 
 
-import numpy as np
-import pytest
+def test_content_hash_handles_newlines_in_title_and_body() -> None:
+    """Newlines in title/body must not forge field boundaries (NUL delimiter enforces this)."""
+    now = datetime.now(UTC)
+    a = Need(id="FACT_x", type=NeedType.FACT, title="T\n", body="X", created_at=now, updated_at=now)
+    b = Need(id="FACT_x", type=NeedType.FACT, title="T", body="\nX", created_at=now, updated_at=now)
+    assert content_hash(a) != content_hash(b)
 
-from papyrus.semantic import VectorStore
+
+def test_vectorstore_survives_corrupt_npy_file(tmp_path) -> None:
+    """Truncated/garbage vectors.npy must not crash VectorStore(); index resets silently."""
+    base = tmp_path / ".papyrus"
+    store = VectorStore(base, model="fake", dim=4)
+    store.upsert([("FACT_a", np.array([1, 0, 0, 0], dtype=np.float32), "h1")])
+    store.save()
+
+    # Corrupt the binary file (truncate to a few bytes that aren't a valid npy header).
+    (base / "vectors.npy").write_bytes(b"\x00\x01\x02\x03")
+
+    reopened = VectorStore(base, model="fake", dim=4)
+    assert reopened.ids() == []
+    assert reopened.matrix().shape == (0, 4)
 
 
 def test_vectorstore_empty_when_missing(tmp_path) -> None:
@@ -95,9 +121,6 @@ def test_vectorstore_model_mismatch_clears_on_load(tmp_path) -> None:
 
     reopened = VectorStore(tmp_path / ".papyrus", model="model-v2", dim=4)
     assert reopened.ids() == []
-
-
-from papyrus.semantic import Encoder, FakeEncoder
 
 
 def test_fake_encoder_matches_keywords_deterministically() -> None:
@@ -227,9 +250,6 @@ def test_semantic_search_empty_index_returns_empty(tmp_path) -> None:
     encoder = _thermal_encoder()
     idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
     assert idx.search("anything") == []
-
-
-from papyrus.semantic import semantic_available
 
 
 def test_semantic_available_false_when_extra_missing(monkeypatch) -> None:
