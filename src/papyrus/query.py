@@ -104,7 +104,7 @@ def render_with_scores(
     fmt: QueryFormat,
     *,
     scope_by_id: dict[str, Scope] | None = None,
-    show_scores: bool = True,
+    show_scores: bool = False,
 ) -> str:
     """Render semantic hits, optionally prefixing each line with the similarity score."""
     if not hits:
