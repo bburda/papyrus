@@ -462,3 +462,80 @@ async def test_memory_recall_coerces_scalar_tags(tmp_path: Path) -> None:
     assert scalar_text == list_text, "scalar tag must match list-of-one behaviour"
     assert "One" in scalar_text
     assert "Two" not in scalar_text
+
+
+async def test_memory_recall_semantic_errors_when_extra_missing(tmp_path: Path, monkeypatch) -> None:
+    chain, cfg = _chain(tmp_path)
+    _add(chain, Scope.LOCAL, "FACT_temp", NeedType.FACT, body="celsius")
+    srv = PapyrusServer(chain, cfg)
+    handler = _HANDLERS["memory_recall"]
+
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: False)
+    result = await handler(srv, {"semantic": True, "query": "temperature"})
+    assert result.isError is True
+    assert "papyrus[semantic]" in _text(result, 0)
+
+
+async def test_memory_recall_semantic_requires_query(tmp_path: Path, monkeypatch) -> None:
+    chain, cfg = _chain(tmp_path)
+    srv = PapyrusServer(chain, cfg)
+    handler = _HANDLERS["memory_recall"]
+
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    result = await handler(srv, {"semantic": True})  # no query
+    assert result.isError is True
+
+
+async def test_memory_recall_semantic_ranks_related_first(tmp_path: Path, monkeypatch) -> None:
+    from papyrus.semantic import FakeEncoder, SemanticIndex
+
+    chain, cfg = _chain(tmp_path)
+    _add(chain, Scope.LOCAL, "FACT_temp", NeedType.FACT, body="sensor celsius reading")
+    _add(chain, Scope.LOCAL, "DEC_auth", NeedType.DEC, body="use bcrypt password hashing")
+    srv = PapyrusServer(chain, cfg)
+    handler = _HANDLERS["memory_recall"]
+
+    encoder = FakeEncoder(
+        axes=["thermal", "auth"],
+        keyword_map={
+            "thermal": ["temperature", "celsius", "hot"],
+            "auth": ["password", "bcrypt"],
+        },
+    )
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    monkeypatch.setattr(
+        "papyrus.semantic.build_default_index",
+        lambda ws: SemanticIndex(ws / ".papyrus", encoder=encoder, model_name="fake"),
+    )
+    # Populate vectors by reindexing the LOCAL backend (the primary workspace).
+    chain.backend_for(Scope.LOCAL).rebuild_index()
+
+    result = await handler(srv, {"semantic": True, "query": "temperature"})
+    assert result.isError is False
+    text = _text(result, 0)
+    assert "FACT_temp" in text
+    assert text.index("FACT_temp") < text.index("DEC_auth")
+
+
+async def test_memory_recall_semantic_show_scores(tmp_path: Path, monkeypatch) -> None:
+    from papyrus.semantic import FakeEncoder, SemanticIndex
+
+    chain, cfg = _chain(tmp_path)
+    _add(chain, Scope.LOCAL, "FACT_temp", NeedType.FACT, body="celsius")
+    srv = PapyrusServer(chain, cfg)
+    handler = _HANDLERS["memory_recall"]
+
+    encoder = FakeEncoder(axes=["x"], keyword_map={"x": ["temperature", "celsius"]})
+    monkeypatch.setattr("papyrus.semantic.semantic_available", lambda: True)
+    monkeypatch.setattr(
+        "papyrus.semantic.build_default_index",
+        lambda ws: SemanticIndex(ws / ".papyrus", encoder=encoder, model_name="fake"),
+    )
+    chain.backend_for(Scope.LOCAL).rebuild_index()
+
+    result = await handler(srv, {"semantic": True, "query": "temperature", "show_scores": True})
+    assert result.isError is False
+    text = _text(result, 0)
+    # Brief with scores: "<score>  <id>..." — first token is a numeric string.
+    first_line = text.strip().splitlines()[0]
+    assert first_line.split()[0].replace(".", "").isdigit()
