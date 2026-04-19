@@ -84,7 +84,7 @@ def test_render_full_with_scope_annotation() -> None:
 def test_render_with_scores_brief_includes_score() -> None:
     from papyrus.query import render_with_scores
     n = _need("FACT_a", NeedType.FACT)
-    out = render_with_scores([(n, 0.8732)], QueryFormat.BRIEF)
+    out = render_with_scores([(n, 0.8732)], QueryFormat.BRIEF, show_scores=True)
     assert "0.87" in out
     assert "FACT_a" in out
 
