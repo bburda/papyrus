@@ -128,3 +128,60 @@ def test_encoder_protocol_structural() -> None:
     assert enc.dim == 1
     out = enc.encode(["x"])
     assert out.shape == (1, 1)
+
+
+def test_semantic_index_reindex_embeds_all(tmp_path) -> None:
+    from papyrus.semantic import SemanticIndex
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    needs = [
+        _need("FACT_temp", NeedType.FACT, body="sensor reads celsius and fahrenheit"),
+        _need("DEC_auth", NeedType.DEC, body="use password hashing"),
+    ]
+    changed = idx.reindex(needs)
+    assert changed == 2
+    assert set(idx.store.ids()) == {"FACT_temp", "DEC_auth"}
+
+
+def test_semantic_index_reindex_is_incremental(tmp_path) -> None:
+    from papyrus.semantic import SemanticIndex
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    n1 = _need("FACT_temp", NeedType.FACT, body="celsius")
+    n2 = _need("DEC_auth", NeedType.DEC, body="password")
+    idx.reindex([n1, n2])
+    # second call with unchanged needs: nothing re-embedded
+    assert idx.reindex([n1, n2]) == 0
+
+
+def test_semantic_index_reindex_reembeds_changed(tmp_path) -> None:
+    from papyrus.semantic import SemanticIndex
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    n1 = _need("FACT_temp", NeedType.FACT, body="celsius")
+    idx.reindex([n1])
+
+    n1_mod = _need("FACT_temp", NeedType.FACT, body="fahrenheit and hot")
+    assert idx.reindex([n1_mod]) == 1
+
+
+def test_semantic_index_reindex_removes_orphans(tmp_path) -> None:
+    from papyrus.semantic import SemanticIndex
+    encoder = _thermal_encoder()
+    idx = SemanticIndex(tmp_path / ".papyrus", encoder=encoder, model_name="fake")
+    n1 = _need("FACT_temp", NeedType.FACT, body="celsius")
+    n2 = _need("DEC_auth", NeedType.DEC, body="password")
+    idx.reindex([n1, n2])
+    idx.reindex([n1])  # n2 gone
+    assert idx.store.ids() == ["FACT_temp"]
+
+
+def _thermal_encoder() -> FakeEncoder:
+    return FakeEncoder(
+        axes=["thermal", "auth", "other"],
+        keyword_map={
+            "thermal": ["temperature", "celsius", "fahrenheit", "hot", "cold", "thermal"],
+            "auth": ["password", "login", "credential"],
+            "other": ["foo", "bar"],
+        },
+    )

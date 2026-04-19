@@ -206,3 +206,55 @@ class SentenceTransformerEncoder:
 
         arr = self._model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
         return arr.astype(np.float32, copy=False)
+
+from collections.abc import Iterable
+
+
+def _need_text(need: Need) -> str:
+    parts = [need.title, need.body]
+    if need.tags:
+        parts.append(" ".join(need.tags))
+    return "\n".join(p for p in parts if p)
+
+
+class SemanticIndex:
+    """Orchestrates incremental embedding + similarity search."""
+
+    def __init__(
+        self,
+        base: Path,
+        *,
+        encoder: Encoder,
+        model_name: str | None = None,
+    ) -> None:
+        self.base = Path(base)
+        self.encoder = encoder
+        self.model_name = model_name or getattr(encoder, "model_name", _DEFAULT_MODEL)
+        self.store = VectorStore(self.base, model=self.model_name, dim=encoder.dim)
+
+    def reindex(self, needs: Iterable[Need]) -> int:
+        """Re-embed any need whose content_hash changed. Drop orphans. Return count changed."""
+        needs_list = list(needs)
+        current_ids = {n.id for n in needs_list}
+        orphans = [nid for nid in self.store.ids() if nid not in current_ids]
+        if orphans:
+            self.store.delete(orphans)
+
+        to_embed: list[tuple[str, Need]] = []
+        for n in needs_list:
+            h = content_hash(n)
+            if self.store.hash_of(n.id) != h:
+                to_embed.append((n.id, n))
+        if not to_embed:
+            if orphans:
+                self.store.save()
+            return 0
+
+        texts = [_need_text(n) for _, n in to_embed]
+        vectors = self.encoder.encode(texts)
+        items: list[tuple[str, "np.ndarray", str]] = [
+            (nid, vectors[row], content_hash(n)) for row, (nid, n) in enumerate(to_embed)
+        ]
+        self.store.upsert(items)
+        self.store.save()
+        return len(to_embed)
